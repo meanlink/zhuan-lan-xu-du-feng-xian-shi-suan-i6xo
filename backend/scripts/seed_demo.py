@@ -2,11 +2,13 @@ import time, json
 from sqlalchemy import select, func
 from src.config.database import Session
 from migrations.initial import migrate
-from src.models import User, Dataset, Job, Report, Delivery, Audit
+from src.models import User, Dataset, Job, Report, Delivery, Audit, HistoryBatch, HistorySample, BacktestCase, BacktestPoint, BacktestTrial
 from src.services.business import metadata, seed_records, analyze
 from src.services.reports import deliver
 from src.utils.security import hash_password
 from src.utils.serialization import checksum
+from scripts.backtest_seed_data import generate as generate_history
+from src.services import backtest
 def seed():
     migrate()
     with Session() as db:
@@ -31,8 +33,34 @@ def seed():
             r=Report(name='每日业务复核简报',job_id=j.id,destination='业务复核组 · 本地收件箱',interval_seconds=86400,next_run=time.time()+86400,enabled=True)
             db.add(r);db.flush();deliver(db,r)
             db.add(Audit(actor='seed',action='demo.baseline',detail={'dataset':d.id},at=time.time()))
+        seed_history(db)
         db.commit()
-        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit]}
+        counts={model.__tablename__:db.scalar(select(func.count()).select_from(model)) for model in [User,Dataset,Job,Report,Delivery,Audit,HistoryBatch,HistorySample,BacktestCase,BacktestPoint,BacktestTrial]}
         print(json.dumps(counts,ensure_ascii=False))
         return counts
+def seed_history(db):
+    """幂等写入历史资料批次，并建立一个已完成的历史回测案示例。"""
+    admin=db.scalar(select(User).where(User.role=='admin'))
+    if db.scalar(select(func.count()).select_from(HistoryBatch)):
+        return
+    for spec in generate_history():
+        rows=[{k:v for k,v in row.items() if k!='cohort'} for row in spec['rows']]
+        backtest.receive_batch(db,type('Batch',(),{
+            'name':spec['name'],'source':spec['source'],'note':spec['note'],'records':rows
+        })(),admin,now=spec['received_at'])
+    db.commit()
+    # 用与服务一致的方式冻结接收范围和各时点，再逐点执行。
+    from src.schemas.backtest import BacktestCaseInput
+    case,_=backtest.plan_case(db,BacktestCaseInput(
+        name='2025 续读结果历史回测',receive_cutoff='2025-12-31T23:59:59+00:00',
+        points=['2025-03-31','2025-06-30','2025-09-30','2025-12-31'],
+        params={'threshold':0.5,'regularization':1.0}),admin)
+    case.created_at=time.time()-7200
+    backtest.run_case(db,case)
+    case.approved=True
+    case.approved_by=admin.email if admin else 'seed'
+    case.approved_at=time.time()-7000
+    db.add(Audit(actor='seed',action='backtest.case.seeded',detail={'case':case.id,'points':case.points_count},at=time.time()))
+
+
 if __name__=='__main__':seed()

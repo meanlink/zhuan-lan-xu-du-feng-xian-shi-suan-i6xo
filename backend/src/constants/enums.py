@@ -8,3 +8,23 @@ class JobStatus(str, Enum):
     running = 'running'
     completed = 'completed'
     failed = 'failed'
+class ReceiptStatus(str, Enum):
+    receiving = 'receiving'
+    received = 'received'
+    rejected = 'rejected'
+class CaseStatus(str, Enum):
+    queued = 'queued'
+    running = 'running'
+    partial = 'partial'
+    completed = 'completed'
+    failed = 'failed'
+class PointStatus(str, Enum):
+    queued = 'queued'
+    running = 'running'
+    completed = 'completed'
+    failed = 'failed'
+class TrialStatus(str, Enum):
+    pending = 'pending'
+    running = 'running'
+    completed = 'completed'
+    failed = 'failed'

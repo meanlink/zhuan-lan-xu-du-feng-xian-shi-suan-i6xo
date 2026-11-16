@@ -46,7 +46,8 @@ def seed_records():
     return rows
 
 
-def analyze(records, params):
+def validate_inputs(records, params):
+    """共用参数与样本校验；返回 (threshold, c_value, x, y)。"""
     try:
         threshold = float(params.get("threshold", 0.5))
         c_value = float(params.get("regularization", 1.0))
@@ -67,6 +68,11 @@ def analyze(records, params):
     counts = np.bincount(y, minlength=2)
     if counts.min() < 8:
         raise ValueError("续读与未续读两类各至少8条样本。")
+    return threshold, c_value, x, y
+
+
+def analyze(records, params):
+    threshold, c_value, x, y = validate_inputs(records, params)
     indices = np.arange(len(records))
     train, valid = train_test_split(indices, test_size=0.25, stratify=y, random_state=42)
     model = make_pipeline(StandardScaler(), LogisticRegression(C=c_value, max_iter=1000, random_state=42))
